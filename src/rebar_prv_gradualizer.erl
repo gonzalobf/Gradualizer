@@ -25,7 +25,10 @@ init(State) ->
             {bare, true},
             {deps, ?DEPS},
             {example, "rebar gradualizer"},
-            {opts, [{use_beams, $b, "use_beams", boolean, "use beam files as input"}]},
+            {opts, [
+                {use_beams, $b, "use_beams", boolean, "use beam files as input"},
+                {apps, $a, "apps", string, "Comma separated list of applications to perform type check"}
+            ]},
             {short_desc, "typecheck the project with gradualizer"},
             {desc, ""}
     ]),
@@ -36,10 +39,13 @@ do(State) ->
     {ok, _} = application:ensure_all_started(gradualizer),
     {Opts, _} = rebar_state:command_parsed_args(State),
     UseBeams = proplists:get_value(use_beams, Opts, false),
+    OnlyApps = proplists:get_value(apps, Opts, ""),
+    Apps = get_apps(OnlyApps, State),
+
     code:add_pathsa(rebar_state:code_paths(State, all_deps)),
     CheckedApps = lists:map(
         fun (App) -> gradualizer_check_app(App, UseBeams) end,
-        rebar_state:project_apps(State)),
+        Apps),
     HasNok = lists:member(nok, CheckedApps),
     if
         HasNok -> {error, {?MODULE, undefined}};
@@ -110,3 +116,15 @@ normalize_src_dirs(SrcDirs, ExtraDirs) ->
     S = lists:usort(SrcDirs),
     E = lists:subtract(lists:usort(ExtraDirs), S),
     {S, E}.
+
+get_apps("", State) ->
+    rebar_state:project_apps(State);
+get_apps(OnlyApps, State) ->
+    AllApps = rebar_state:project_apps(State),
+    Only = [list_to_atom(S) || S <- string:lexemes(OnlyApps, [$,])],
+    lists:filter(
+        fun(App) ->
+            AppName = list_to_atom(binary_to_list(rebar_app_info:name(App))),
+            lists:member(AppName, Only)
+        end,
+        AllApps).
